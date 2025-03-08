@@ -2,8 +2,8 @@ import express from "express";
 const router = express.Router();
 import QuizSet from "../models/QuizSet.js";
 import Question from "../models/Question.js";
+import User from "../models/User.js";
 import { generateQuiz } from "../config/gemini.js";
-import mongoose from "mongoose";
 
 router.get("/", (req, res) => {
   res.send("Quiz Route is working");
@@ -45,7 +45,6 @@ router.post("/generate", async (req, res) => {
     const questionIds = await Promise.all(
       questions.map(async (q) => {
         const question = new Question({
-          quizSetId: new mongoose.Types.ObjectId(),
           question: q.question_text,
           answer_a: q.answer_a,
           answer_b: q.answer_b,
@@ -82,6 +81,23 @@ router.post("/generate", async (req, res) => {
     console.error("Quiz generation error:", error);
     res.status(500).json({
       message: "Failed to generate quiz",
+      error: error.message,
+      details: error.stack,
+    });
+  }
+});
+
+router.get("/all", async (req, res) => {
+  try {
+    const quizzes = await QuizSet.find()
+      .populate("questions")
+      .populate("creator", "username email")
+      .lean();
+    res.json(quizzes);
+  } catch (error) {
+    console.error("Error fetching quizzes:", error);
+    res.status(500).json({
+      message: "Failed to fetch quizzes",
       error: error.message,
       details: error.stack,
     });
