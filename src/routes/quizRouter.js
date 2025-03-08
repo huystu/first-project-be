@@ -4,6 +4,7 @@ import QuizSet from "../models/QuizSet.js";
 import Question from "../models/Question.js";
 import User from "../models/User.js";
 import { generateQuiz } from "../config/gemini.js";
+import mongoose from "mongoose";
 
 router.get("/", (req, res) => {
   res.send("Quiz Route is working");
@@ -98,6 +99,33 @@ router.get("/all", async (req, res) => {
     console.error("Error fetching quizzes:", error);
     res.status(500).json({
       message: "Failed to fetch quizzes",
+      error: error.message,
+      details: error.stack,
+    });
+  }
+});
+
+router.get("/:id", async (req, res) => {
+  try {
+    const quizId = req.params.id;
+    if (!mongoose.Types.ObjectId.isValid(quizId)) {
+      return res.status(400).json({ message: "Invalid quiz ID" });
+    }
+
+    const quiz = await QuizSet.findById(quizId)
+      .populate("questions")
+      .populate("creator", "username email")
+      .lean();
+
+    if (!quiz) {
+      return res.status(404).json({ message: "Quiz not found" });
+    }
+
+    res.json(quiz);
+  } catch (error) {
+    console.error("Error fetching quiz:", error);
+    res.status(500).json({
+      message: "Failed to fetch quiz",
       error: error.message,
       details: error.stack,
     });
