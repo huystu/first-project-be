@@ -1,10 +1,5 @@
 import mongoose from "mongoose";
 const QuestionSchema = new mongoose.Schema({
-  quizSetId: {
-    type: Schema.Types.ObjectId,
-    ref: "QuizSet",
-    required: true,
-  },
   question: {
     type: String,
     required: true,
