@@ -1,6 +1,91 @@
 import express from "express";
 const router = express.Router();
+import QuizSet from "../models/QuizSet.js";
+import Question from "../models/Question.js";
+import { generateQuiz } from "../config/gemini.js";
+import mongoose from "mongoose";
+
 router.get("/", (req, res) => {
   res.send("Quiz Route is working");
 });
+
+router.post("/generate", async (req, res) => {
+  try {
+    const { topic, numberOfQuestions, language = "en" } = req.body;
+    //test creatorID
+    const creatorId = "60f3b3b3b3b3b3b3b3b3b3b3";
+    const questions = await generateQuiz(topic, numberOfQuestions, language);
+
+    console.log("Generated questions:", JSON.stringify(questions, null, 2));
+
+    if (!Array.isArray(questions)) {
+      throw new Error("Generated questions must be an array");
+    }
+
+    questions.forEach((q, index) => {
+      if (
+        !q.question_text ||
+        !q.answer_a ||
+        !q.answer_b ||
+        !q.answer_c ||
+        !q.answer_d ||
+        !q.correct_answer
+      ) {
+        throw new Error(
+          `Question at index ${index} is missing required fields`
+        );
+      }
+      if (!["A", "B", "C", "D"].includes(q.correct_answer)) {
+        throw new Error(
+          `Invalid correct_answer "${q.correct_answer}" for question at index ${index}`
+        );
+      }
+    });
+
+    const questionIds = await Promise.all(
+      questions.map(async (q) => {
+        const question = new Question({
+          quizSetId: new mongoose.Types.ObjectId(),
+          question: q.question_text,
+          answer_a: q.answer_a,
+          answer_b: q.answer_b,
+          answer_c: q.answer_c,
+          answer_d: q.answer_d,
+          correct_answer: q.correct_answer,
+        });
+        await question.save();
+        return question._id;
+      })
+    );
+
+    const quizSet = new QuizSet({
+      creator: creatorId,
+      title: `Quiz about ${topic}`,
+      description: `A generated quiz about ${topic}`,
+      questions: questionIds,
+    });
+
+    console.log("Quiz set to be saved:", JSON.stringify(quizSet, null, 2));
+
+    await quizSet.save();
+
+    res.json({
+      message: "Quiz generated successfully",
+      quizSet: {
+        id: quizSet._id,
+        title: quizSet.title,
+        description: quizSet.description,
+        questions: quizSet.questions,
+      },
+    });
+  } catch (error) {
+    console.error("Quiz generation error:", error);
+    res.status(500).json({
+      message: "Failed to generate quiz",
+      error: error.message,
+      details: error.stack,
+    });
+  }
+});
+
 export default router;

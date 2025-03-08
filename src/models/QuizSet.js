@@ -3,13 +3,14 @@ const QuizSetSchema = new mongoose.Schema({
   creator: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
-    required: true,
+    // uncomment the line below later when have feat User Login
+    // required: true,
   },
   title: { type: String, required: true },
   description: { type: String },
   questions: [
     {
-      type: Schema.Types.ObjectId,
+      type: mongoose.Schema.Types.ObjectId,
       ref: "Question",
     },
   ],
