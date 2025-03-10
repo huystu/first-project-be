@@ -4,6 +4,43 @@ import Session from "../models/Session.js";
 
 const router = express.Router();
 
+router.get("/:sessionId", authenticateToken, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = await Session.findById(sessionId).populate(
+      "userId",
+      "name email"
+    ); // Lấy thông tin user
+
+    if (!session) {
+      return res.status(404).json({ message: "Session not found" });
+    }
+
+    res.json(session);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.get("/leaderboard/:quizId", authenticateToken, async (req, res) => {
+  try {
+    const { quizId } = req.params;
+
+    // Lấy top 10 điểm cao nhất
+    const leaderboard = await Session.find({
+      quizSetId: quizId,
+      status: "ended",
+    })
+      .sort({ score: -1 }) // Sắp xếp theo điểm giảm dần
+      .limit(10)
+      .populate("userId", "name email");
+
+    res.json(leaderboard);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 router.get("/active/:quizId", authenticateToken, async (req, res) => {
   try {
     const { quizId } = req.params;
