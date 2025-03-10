@@ -2,6 +2,7 @@ import express from "express";
 const router = express.Router();
 import QuizSet from "../models/QuizSet.js";
 import Question from "../models/Question.js";
+import { authenticateToken } from "../middlewares/auth.js";
 import User from "../models/User.js";
 import { generateQuiz } from "../config/gemini.js";
 import mongoose from "mongoose";
@@ -10,11 +11,15 @@ router.get("/", (req, res) => {
   res.send("Quiz Route is working");
 });
 
-router.post("/generate", async (req, res) => {
+router.post("/generate", authenticateToken, async (req, res) => {
   try {
     const { topic, numberOfQuestions, language = "en" } = req.body;
     //test creatorID
-    const creatorId = "60f3b3b3b3b3b3b3b3b3b3b3";
+    const creatorId = req.user._id;
+    console.log("Creator ID:", creatorId);
+    if (!creatorId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
     const questions = await generateQuiz(topic, numberOfQuestions, language);
 
     console.log("Generated questions:", JSON.stringify(questions, null, 2));
@@ -92,7 +97,7 @@ router.get("/all", async (req, res) => {
   try {
     const quizzes = await QuizSet.find()
       .populate("questions")
-      .populate("creator", "username email")
+      .populate("creator", "name email profilePicture")
       .lean();
     res.json(quizzes);
   } catch (error) {
@@ -114,7 +119,7 @@ router.get("/:id", async (req, res) => {
 
     const quiz = await QuizSet.findById(quizId)
       .populate("questions")
-      .populate("creator", "username email")
+      .populate("creator", "name email profilePicture")
       .lean();
 
     if (!quiz) {
