@@ -6,6 +6,7 @@ import { authenticateToken } from "../middlewares/auth.js";
 import User from "../models/User.js";
 import { generateQuiz } from "../config/gemini.js";
 import mongoose from "mongoose";
+import Session from "../models/Session.js";
 
 router.get("/", (req, res) => {
   res.send("Quiz Route is working");
@@ -104,6 +105,95 @@ router.get("/all", async (req, res) => {
     console.error("Error fetching quizzes:", error);
     res.status(500).json({
       message: "Failed to fetch quizzes",
+      error: error.message,
+      details: error.stack,
+    });
+  }
+});
+
+router.get("/popular", async (req, res) => {
+  try {
+    // Get the count of ended sessions for each quiz
+    const sessionCounts = await Session.aggregate([
+      { $match: { status: "ended" } },
+      {
+        $group: {
+          _id: "$quizSetId",
+          playCount: { $sum: 1 },
+        },
+      },
+    ]);
+
+    // Create a map of quizId to playCount
+    const playCountMap = sessionCounts.reduce((acc, curr) => {
+      acc[curr._id.toString()] = curr.playCount;
+      return acc;
+    }, {});
+
+    // Get all quizzes with populated fields
+    const quizzes = await QuizSet.find()
+      .populate("questions")
+      .populate("creator", "name email profilePicture")
+      .lean();
+
+    // Add the actual playCount to each quiz
+    const quizzesWithPlayCount = quizzes.map((quiz) => ({
+      ...quiz,
+      playCount: playCountMap[quiz._id.toString()] || 0,
+    }));
+
+    // Sort by playCount in descending order
+    quizzesWithPlayCount.sort((a, b) => b.playCount - a.playCount);
+
+    res.json(quizzesWithPlayCount);
+  } catch (error) {
+    console.error("Error fetching popular quizzes:", error);
+    res.status(500).json({
+      message: "Failed to fetch popular quizzes",
+      error: error.message,
+      details: error.stack,
+    });
+  }
+});
+
+router.get("/new", async (req, res) => {
+  try {
+    // Get the count of ended sessions for each quiz
+    const sessionCounts = await Session.aggregate([
+      { $match: { status: "ended" } },
+      {
+        $group: {
+          _id: "$quizSetId",
+          playCount: { $sum: 1 },
+        },
+      },
+    ]);
+
+    // Create a map of quizId to playCount
+    const playCountMap = sessionCounts.reduce((acc, curr) => {
+      acc[curr._id.toString()] = curr.playCount;
+      return acc;
+    }, {});
+
+    // Get all quizzes with populated fields, sorted by creation date
+    const quizzes = await QuizSet.find()
+      .populate("questions")
+      .populate("creator", "name email profilePicture")
+      .sort({ createdAt: -1 }) // Sort by creation date, newest first
+      .limit(10) // Limit to 10 newest quizzes
+      .lean();
+
+    // Add the actual playCount to each quiz
+    const quizzesWithPlayCount = quizzes.map((quiz) => ({
+      ...quiz,
+      playCount: playCountMap[quiz._id.toString()] || 0,
+    }));
+
+    res.json(quizzesWithPlayCount);
+  } catch (error) {
+    console.error("Error fetching new quizzes:", error);
+    res.status(500).json({
+      message: "Failed to fetch new quizzes",
       error: error.message,
       details: error.stack,
     });
