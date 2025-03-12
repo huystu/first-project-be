@@ -15,7 +15,6 @@ router.get("/", (req, res) => {
 router.post("/generate", authenticateToken, async (req, res) => {
   try {
     const { topic, numberOfQuestions, language = "en" } = req.body;
-    //test creatorID
     const creatorId = req.user._id;
     console.log("Creator ID:", creatorId);
     if (!creatorId) {
@@ -49,7 +48,7 @@ router.post("/generate", authenticateToken, async (req, res) => {
       }
     });
 
-    const questionIds = await Promise.all(
+    const savedQuestions = await Promise.all(
       questions.map(async (q) => {
         const question = new Question({
           question: q.question_text,
@@ -60,7 +59,7 @@ router.post("/generate", authenticateToken, async (req, res) => {
           correct_answer: q.correct_answer,
         });
         await question.save();
-        return question._id;
+        return question;
       })
     );
 
@@ -68,20 +67,27 @@ router.post("/generate", authenticateToken, async (req, res) => {
       creator: creatorId,
       title: `Quiz about ${topic}`,
       description: `A generated quiz about ${topic}`,
-      questions: questionIds,
+      questions: savedQuestions.map((q) => q._id),
     });
-
-    console.log("Quiz set to be saved:", JSON.stringify(quizSet, null, 2));
 
     await quizSet.save();
 
+    // Return full quiz information including questions
     res.json({
       message: "Quiz generated successfully",
       quizSet: {
         id: quizSet._id,
         title: quizSet.title,
         description: quizSet.description,
-        questions: quizSet.questions,
+        questions: savedQuestions.map((q) => ({
+          id: q._id,
+          question: q.question,
+          answer_a: q.answer_a,
+          answer_b: q.answer_b,
+          answer_c: q.answer_c,
+          answer_d: q.answer_d,
+          correct_answer: q.correct_answer,
+        })),
       },
     });
   } catch (error) {
@@ -221,6 +227,145 @@ router.get("/:id", async (req, res) => {
     console.error("Error fetching quiz:", error);
     res.status(500).json({
       message: "Failed to fetch quiz",
+      error: error.message,
+      details: error.stack,
+    });
+  }
+});
+
+router.delete("/:id", authenticateToken, async (req, res) => {
+  try {
+    const quizId = req.params.id;
+    if (!mongoose.Types.ObjectId.isValid(quizId)) {
+      return res.status(400).json({ message: "Invalid quiz ID" });
+    }
+
+    const quiz = await QuizSet.findById(quizId);
+    if (!quiz) {
+      return res.status(404).json({ message: "Quiz not found" });
+    }
+
+    // Check if the user is the creator of the quiz
+    if (quiz.creator.toString() !== req.user._id.toString()) {
+      return res
+        .status(403)
+        .json({ message: "Not authorized to delete this quiz" });
+    }
+
+    // Delete all questions associated with this quiz
+    await Question.deleteMany({ _id: { $in: quiz.questions } });
+
+    // Delete the quiz set
+    await QuizSet.findByIdAndDelete(quizId);
+
+    res.json({ message: "Quiz deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting quiz:", error);
+    res.status(500).json({
+      message: "Failed to delete quiz",
+      error: error.message,
+      details: error.stack,
+    });
+  }
+});
+
+router.post("/regenerate/:id", authenticateToken, async (req, res) => {
+  try {
+    const quizId = req.params.id;
+    if (!mongoose.Types.ObjectId.isValid(quizId)) {
+      return res.status(400).json({ message: "Invalid quiz ID" });
+    }
+
+    // Find the existing quiz
+    const existingQuiz = await QuizSet.findById(quizId);
+    if (!existingQuiz) {
+      return res.status(404).json({ message: "Quiz not found" });
+    }
+
+    // Check if the user is the creator of the quiz
+    if (existingQuiz.creator.toString() !== req.user._id.toString()) {
+      return res
+        .status(403)
+        .json({ message: "Not authorized to regenerate this quiz" });
+    }
+
+    // Get topic from the title (remove "Quiz about " prefix)
+    const topic = existingQuiz.title.replace("Quiz about ", "");
+    const numberOfQuestions = existingQuiz.questions.length;
+    const { language = "en" } = req.body;
+
+    // Generate new questions
+    const questions = await generateQuiz(topic, numberOfQuestions, language);
+
+    if (!Array.isArray(questions)) {
+      throw new Error("Generated questions must be an array");
+    }
+
+    questions.forEach((q, index) => {
+      if (
+        !q.question_text ||
+        !q.answer_a ||
+        !q.answer_b ||
+        !q.answer_c ||
+        !q.answer_d ||
+        !q.correct_answer
+      ) {
+        throw new Error(
+          `Question at index ${index} is missing required fields`
+        );
+      }
+      if (!["A", "B", "C", "D"].includes(q.correct_answer)) {
+        throw new Error(
+          `Invalid correct_answer "${q.correct_answer}" for question at index ${index}`
+        );
+      }
+    });
+
+    // Delete old questions
+    await Question.deleteMany({ _id: { $in: existingQuiz.questions } });
+
+    // Create new questions
+    const savedQuestions = await Promise.all(
+      questions.map(async (q) => {
+        const question = new Question({
+          question: q.question_text,
+          answer_a: q.answer_a,
+          answer_b: q.answer_b,
+          answer_c: q.answer_c,
+          answer_d: q.answer_d,
+          correct_answer: q.correct_answer,
+        });
+        await question.save();
+        return question;
+      })
+    );
+
+    // Update quiz with new questions
+    existingQuiz.questions = savedQuestions.map((q) => q._id);
+    await existingQuiz.save();
+
+    // Return full quiz information including questions
+    res.json({
+      message: "Quiz regenerated successfully",
+      quizSet: {
+        id: existingQuiz._id,
+        title: existingQuiz.title,
+        description: existingQuiz.description,
+        questions: savedQuestions.map((q) => ({
+          id: q._id,
+          question: q.question,
+          answer_a: q.answer_a,
+          answer_b: q.answer_b,
+          answer_c: q.answer_c,
+          answer_d: q.answer_d,
+          correct_answer: q.correct_answer,
+        })),
+      },
+    });
+  } catch (error) {
+    console.error("Quiz regeneration error:", error);
+    res.status(500).json({
+      message: "Failed to regenerate quiz",
       error: error.message,
       details: error.stack,
     });
